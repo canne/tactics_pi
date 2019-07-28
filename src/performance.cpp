@@ -517,7 +517,7 @@ void Polar::loadPolar(wxString FilePath)
       }
       completePolar();
       g_path_to_PolarFile = filePath;
-      if (pConf) {
+        if (pConf) {
         pConf->SetPath(_T("/PlugIns/Tactics/Performance"));
         pConf->Write(_T("PolarFile"), g_path_to_PolarFile);
       }
