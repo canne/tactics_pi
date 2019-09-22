@@ -45,6 +45,8 @@
 #include <cmath>
 
 extern Polar* BoatPolar;
+extern AvgWind* AverageWind; //TR 28.07.19
+
 extern wxString g_path_to_PolarLookupOutputFile;
 extern wxString g_path_to_PolarFile;
 extern int g_iDashWindSpeedUnit;
@@ -52,6 +54,9 @@ extern int g_iDashSpeedUnit;
 extern PlugIn_Waypoint *m_pMark;
 extern int g_iSpeedFormat;
 extern wxString g_sDataExportSeparator;
+extern bool g_bDataExportUTC;
+extern bool g_bDataExportClockticks;
+
 //extern int g_iPolarMode; //0=do nothing, 1=create new, 2=update existing
 #define ID_EXPORTRATE_1   11001
 #define ID_EXPORTRATE_5   11005
@@ -78,8 +83,12 @@ TacticsInstrument_PerformanceSingle::TacticsInstrument_PerformanceSingle(wxWindo
 	mCOG = NAN;
 	mBRG = -1;
     mTWD = NAN;
+    mCMG = NAN; 
+    m_lat = NAN;
+    m_lon = NAN;
 	stwunit = _T("");
-
+    m_DataHeight = 0;
+    m_displaytype = 0;
 }
 /***********************************************************************************
 
@@ -142,169 +151,192 @@ void TacticsInstrument_PerformanceSingle::SetDisplayType(int type){
 ************************************************************************************/
 void TacticsInstrument_PerformanceSingle::SetData(int st, double data, wxString unit)
 {
-  if (std::isnan(data))
-    return;
-  
-  if (st == OCPN_DBP_STC_STW){
-    
-    //mSTW = data;
-    //convert to knots first
-    mSTW = fromUsrSpeed_Plugin(data, g_iDashSpeedUnit);
-    stwunit = unit;
-  }
-  else if (st == OCPN_DBP_STC_TWA){
-    mTWA = data;
-  }
-  else if (st == OCPN_DBP_STC_COG){
-    mCOG = data;
-  }
-  else if (st == OCPN_DBP_STC_SOG){
-    //convert to knots first
-    //mSOG = data;
-    mSOG = fromUsrSpeed_Plugin(data, g_iDashSpeedUnit);
-  }
-  else if (st == OCPN_DBP_STC_LAT) {
-    m_lat = data;
-  }
-  else if (st == OCPN_DBP_STC_LON) {
-    m_lon = data;
-  }
-  else if (st == OCPN_DBP_STC_BRG){
-    mBRG = data;
-    /*if (!GetSingleWaypoint(_T("TacticsWP"), m_pMark)){
-      mBRG = data;
-      //m_ToWpt = unit;
-      //wxLogMessage(_T("RMB mBRG=%.2f"), mBRG);
-      }
-      else{
-      if (m_pMark && m_lat>0 && m_lon>0) {
-      double dist;
-      DistanceBearingMercator_Plugin(m_pMark->m_lat, m_pMark->m_lon, m_lat, m_lon, &mBRG, &dist);
-      //m_ToWpt = _T("TacticsWP");
-      // wxLogMessage(_T("TacticsWP m_pMark->m_lat=%f, m_pMark->m_lon=%f, m_lat=%f, m_lon=%f, mBRG=%.2f"), m_pMark->m_lat, m_pMark->m_lon, m_lat, m_lon,mBRG);
-      
-      }
-      }*/
-  }
-  else if (st == OCPN_DBP_STC_TWS){
-    //mTWS = data;
-    //convert to knots
-    mTWS = fromUsrSpeed_Plugin(data, g_iDashWindSpeedUnit);
-  }
-  else if (st == OCPN_DBP_STC_HDT){
-    mHDT = data;
-  }
-  else if (st == OCPN_DBP_STC_TWD){
-    mTWD = data;
-  }
-  if (!GetSingleWaypoint(_T("TacticsWP"), m_pMark)) m_pMark = NULL;
-  if (m_pMark && m_lat > 0 && m_lon > 0) {
-    double dist;
-    DistanceBearingMercator_Plugin(m_pMark->m_lat, m_pMark->m_lon, m_lat, m_lon, &mBRG, &dist);
-    //m_ToWpt = _T("TacticsWP");
-  }
-  if (!std::isnan(mSTW) && !std::isnan(mTWA) && !std::isnan(mTWS)){
-    
-    if (m_displaytype == POLARSPEED){
-      double targetspeed = BoatPolar->GetPolarSpeed(mTWA, mTWS);
-      //double avgtargetspeed = BoatPolar->GetAvgPolarSpeed(mTWA, mTWS);
-      
-      if (std::isnan(targetspeed) || mSTW == 0)
-	m_data = _T("no polar data");
-      else {
-	double percent = mSTW / targetspeed * 100;
-	double user_targetSpeed = toUsrSpeed_Plugin(targetspeed, g_iDashSpeedUnit);
-	m_data = wxString::Format("%d", wxRound(percent)) + _T(" % / ") + wxString::Format("%.2f ", user_targetSpeed) + stwunit;
-	//m_data = wxString::Format("%.2f / ", avgtargetspeed) + wxString::Format("%.2f", user_targetSpeed) + _T(" ") + stwunit;
-      }
-    }
-    else if (m_displaytype == POLARVMG){
-      double VMG = BoatPolar->Calc_VMG(mTWA,mSTW);
-      double user_VMG = toUsrSpeed_Plugin(VMG, g_iDashSpeedUnit);
-      
-      m_data = wxString::Format("%.2f", user_VMG) + _T(" ") + stwunit;
-      
-    }
-    else if (m_displaytype == POLARTARGETVMG){
-      TargetxMG targetVMG = BoatPolar->Calc_TargetVMG(mTWA, mTWS);
-      if (targetVMG.TargetSpeed > 0) {
-	double VMG = BoatPolar->Calc_VMG(mTWA, mSTW);
-	double percent = fabs(VMG / targetVMG.TargetSpeed * 100.);
-	targetVMG.TargetSpeed = toUsrSpeed_Plugin(targetVMG.TargetSpeed, g_iDashSpeedUnit);
-	
-	m_data = wxString::Format("%d", wxRound(percent)) + _T(" % / ") + wxString::Format("%.2f", targetVMG.TargetSpeed) + _T(" ") + stwunit;
-      }
-      else
-	m_data =  _T("--- % / --- ") + stwunit;
-      
-    }
-    else if (m_displaytype == POLARTARGETVMGANGLE){
-      TargetxMG targetVMG = BoatPolar->Calc_TargetVMG(mTWA, mTWS);
-      if (!std::isnan(targetVMG.TargetAngle))
-	m_data = wxString::Format("%.0f", targetVMG.TargetAngle) + _T("\u00B0");
-      else
-	m_data = _T("no polar data");
-    }
-  }
-  else
-    m_data = _T("---");
-  
-  if (m_displaytype == POLARCMG){
-    if (!std::isnan(mSOG) && !std::isnan(mCOG) && mBRG>=0) {
-      mCMG = BoatPolar->Calc_CMG(mCOG, mSOG, mBRG);
-      double user_CMG = toUsrSpeed_Plugin(mCMG, g_iDashSpeedUnit);
-      m_data = wxString::Format("%.2f", user_CMG) + _T(" ") + stwunit;
-    }
-    else
-      m_data = _T("no bearing");
-    
-  }
-  else if (m_displaytype == POLARTARGETCMG){
-    //TargetxMG targetCMG = BoatPolar->Calc_TargetCMG(mTWS, mTWD, mBRG);
-    TargetxMG TCMGMax, TCMGMin;
-    TCMGMax.TargetSpeed = NAN;
-    if (!std::isnan(mTWS) && !std::isnan(mTWD) && mBRG>=0)
-      BoatPolar->Calc_TargetCMG2 (mTWS, mTWD, mBRG, &TCMGMax, &TCMGMin);
-    //if (!std::isnan(targetCMG.TargetSpeed) && targetCMG.TargetSpeed > 0) {
-    if (!std::isnan(TCMGMax.TargetSpeed) && TCMGMax.TargetSpeed > 0 && !std::isnan(mHDT) && !std::isnan(mSTW)) {
-      double cmg = BoatPolar->Calc_CMG(mHDT, mSTW, mBRG);
-      if (!std::isnan(cmg) )//&& cmg >=0)
-	{
-	  //double percent = fabs(cmg / targetCMG.TargetSpeed * 100.);
-	  double percent = cmg / TCMGMax.TargetSpeed * 100.;
-	  TCMGMax.TargetSpeed = toUsrSpeed_Plugin(TCMGMax.TargetSpeed, g_iDashSpeedUnit);
-	  m_data = wxString::Format("%d", wxRound(percent)) + _T(" % / ") + wxString::Format("%.2f", TCMGMax.TargetSpeed) + _T(" ") + stwunit;
-	}
-      else
-	m_data = _T("--- % / --- ") + stwunit;
-    }
-    else
-      m_data = _T("--- % / --- ") + stwunit;
-    
-  }
-  else if (m_displaytype == POLARTARGETCMGANGLE){
-    if (!std::isnan(mSTW) && mBRG >= 0 && !std::isnan(mHDT)) {
-      double cmg = BoatPolar->Calc_CMG(mHDT, mSTW, mBRG);
-      TargetxMG TCMGMax, TCMGMin;
-      TCMGMax.TargetAngle = NAN;
-      if (!std::isnan(mTWS) && !std::isnan(mTWD) && mBRG >= 0)
-	BoatPolar->Calc_TargetCMG2(mTWS, mTWD, mBRG, &TCMGMax, &TCMGMin);
-      if (!std::isnan(TCMGMax.TargetAngle))
-	m_data = wxString::Format("%.0f", TCMGMax.TargetAngle) + _T("\u00B0");
-      else
-	m_data = _T("no polar data");
-    }
-    else
-      m_data = _T("no data");
-  }
-  else if (m_displaytype == TWAMARK){
-    if (mBRG>=0 && !std::isnan(mTWD)) {
-      double markBrG = getDegRange(mBRG, mTWD);
-      m_data = wxString::Format("%.0f",(double) markBrG) + _T("\u00B0");
-    }
-    else
-      m_data = _T("---");
-  }
+
+			if (st == OCPN_DBP_STC_STW){
+
+              //mSTW = data;
+              //convert to knots first
+              mSTW = fromUsrSpeed_Plugin(data, g_iDashSpeedUnit);
+			  stwunit = unit;
+			}
+			else if (st == OCPN_DBP_STC_TWA){
+				mTWA = data;
+			}
+            else if (st == OCPN_DBP_STC_COG){
+              mCOG = data;
+			}
+			else if (st == OCPN_DBP_STC_SOG){
+              //convert to knots first
+              //mSOG = data;
+              mSOG = fromUsrSpeed_Plugin(data, g_iDashSpeedUnit);
+            }
+            else if (st == OCPN_DBP_STC_LAT) {
+              m_lat = data;
+            }
+            else if (st == OCPN_DBP_STC_LON) {
+              m_lon = data;
+            }
+			else if (st == OCPN_DBP_STC_BRG){
+			  mBRG = data;
+              /*if (!GetSingleWaypoint(_T("TacticsWP"), m_pMark)){
+                mBRG = data;
+                //m_ToWpt = unit;
+                //wxLogMessage(_T("RMB mBRG=%.2f"), mBRG);
+              }
+              else{
+                if (m_pMark && m_lat>0 && m_lon>0) {
+                  double dist;
+                  DistanceBearingMercator_Plugin(m_pMark->m_lat, m_pMark->m_lon, m_lat, m_lon, &mBRG, &dist);
+                  //m_ToWpt = _T("TacticsWP");
+                 // wxLogMessage(_T("TacticsWP m_pMark->m_lat=%f, m_pMark->m_lon=%f, m_lat=%f, m_lon=%f, mBRG=%.2f"), m_pMark->m_lat, m_pMark->m_lon, m_lat, m_lon,mBRG);
+
+                }
+              }*/
+			}
+			else if (st == OCPN_DBP_STC_TWS){
+              //mTWS = data;
+              //convert to knots
+              mTWS = fromUsrSpeed_Plugin(data, g_iDashWindSpeedUnit);
+			}
+			else if (st == OCPN_DBP_STC_HDT){
+				mHDT = data;
+			}
+            else if (st == OCPN_DBP_STC_TWD){
+              mTWD = data;
+            }
+            if (!GetSingleWaypoint(_T("TacticsWP"), m_pMark)) m_pMark = NULL;
+            if (m_pMark && m_lat > 0 && m_lon > 0) {
+                double dist;
+                DistanceBearingMercator_Plugin(m_pMark->m_lat, m_pMark->m_lon, m_lat, m_lon, &mBRG, &dist);
+                //m_ToWpt = _T("TacticsWP");
+            }
+			if (!wxIsNaN(mSTW) && !wxIsNaN(mTWA) && !wxIsNaN(mTWS)){
+
+				if (m_displaytype == POLARSPEED){
+                  double targetspeed = BoatPolar->GetPolarSpeed(mTWA, mTWS);
+                  //double avgtargetspeed = BoatPolar->GetAvgPolarSpeed(mTWA, mTWS);
+
+					if (wxIsNaN(targetspeed) || mSTW == 0)
+						m_data = _T("no polar data");
+					else {
+                        double percent = mSTW / targetspeed * 100;
+                        double user_targetSpeed = toUsrSpeed_Plugin(targetspeed, g_iDashSpeedUnit);
+                        m_data = wxString::Format("%d", wxRound(percent)) + _T(" % / ") + wxString::Format("%.2f ", user_targetSpeed) + stwunit;
+                        //m_data = wxString::Format("%.2f / ", avgtargetspeed) + wxString::Format("%.2f", user_targetSpeed) + _T(" ") + stwunit;
+                    }
+				}
+				else if (m_displaytype == POLARVMG){
+					double VMG = BoatPolar->Calc_VMG(mTWA,mSTW);
+                    double user_VMG = toUsrSpeed_Plugin(VMG, g_iDashSpeedUnit);
+
+					m_data = wxString::Format("%.2f", user_VMG) + _T(" ") + stwunit;
+
+				}
+				else if (m_displaytype == POLARTARGETVMG){
+                  TargetxMG targetVMG = BoatPolar->Calc_TargetVMG(mTWA, mTWS);
+					if (targetVMG.TargetSpeed > 0) {
+						double VMG = BoatPolar->Calc_VMG(mTWA, mSTW);
+						double percent = fabs(VMG / targetVMG.TargetSpeed * 100.);
+                        targetVMG.TargetSpeed = toUsrSpeed_Plugin(targetVMG.TargetSpeed, g_iDashSpeedUnit);
+
+						m_data = wxString::Format("%d", wxRound(percent)) + _T(" % / ") + wxString::Format("%.2f", targetVMG.TargetSpeed) + _T(" ") + stwunit;
+					}
+					else
+						m_data =  _T("--- % / --- ") + stwunit;
+
+				}
+				else if (m_displaytype == POLARTARGETVMGANGLE){
+					TargetxMG targetVMG = BoatPolar->Calc_TargetVMG(mTWA, mTWS);
+					if (!wxIsNaN(targetVMG.TargetAngle))
+					    m_data = wxString::Format("%.0f", targetVMG.TargetAngle) + _T("\u00B0");
+					else
+						m_data = _T("no polar data");
+				}
+			}
+    		else
+			  m_data = _T("---");
+
+			if (m_displaytype == POLARCMG){
+				if (!wxIsNaN(mSOG) && !wxIsNaN(mCOG) && mBRG>=0) {
+				  mCMG = BoatPolar->Calc_CMG(mCOG, mSOG, mBRG);
+                  double user_CMG = toUsrSpeed_Plugin(mCMG, g_iDashSpeedUnit);
+				   m_data = wxString::Format("%.2f", user_CMG) + _T(" ") + stwunit;
+				}
+				else
+				   m_data = _T("no bearing");
+
+			}
+			else if (m_displaytype == POLARTARGETCMG){
+              //TargetxMG targetCMG = BoatPolar->Calc_TargetCMG(mTWS, mTWD, mBRG);
+              TargetxMG TCMGMax, TCMGMin;
+	          TCMGMax.TargetSpeed = NAN;
+              if (!wxIsNaN(mTWS) && !wxIsNaN(mTWD) && mBRG>=0)
+		        BoatPolar->Calc_TargetCMG2 (mTWS, mTWD, mBRG, &TCMGMax, &TCMGMin);
+                //if (!wxIsNaN(targetCMG.TargetSpeed) && targetCMG.TargetSpeed > 0) {
+              if (!wxIsNaN(TCMGMax.TargetSpeed) && TCMGMax.TargetSpeed > 0 && !wxIsNaN(mHDT) && !wxIsNaN(mSTW)) {
+					double cmg = BoatPolar->Calc_CMG(mHDT, mSTW, mBRG);
+                    if (!wxIsNaN(cmg) )//&& cmg >=0)
+                    {
+                      //double percent = fabs(cmg / targetCMG.TargetSpeed * 100.);
+                      double percent = cmg / TCMGMax.TargetSpeed * 100.;
+                      TCMGMax.TargetSpeed = toUsrSpeed_Plugin(TCMGMax.TargetSpeed, g_iDashSpeedUnit);
+                      m_data = wxString::Format("%d", wxRound(percent)) + _T(" % / ") + wxString::Format("%.2f", TCMGMax.TargetSpeed) + _T(" ") + stwunit;
+                    }
+                    else
+                      m_data = _T("--- % / --- ") + stwunit;
+				}
+				else
+					m_data = _T("--- % / --- ") + stwunit;
+
+			}
+            else if (m_displaytype == POLARTARGETCMGANGLE){
+              if (!wxIsNaN(mSTW) && mBRG >= 0 && !wxIsNaN(mHDT)) {
+                double cmg = BoatPolar->Calc_CMG(mHDT, mSTW, mBRG);
+                TargetxMG TCMGMax, TCMGMin;
+                TCMGMax.TargetAngle = NAN;
+                if (!wxIsNaN(mTWS) && !wxIsNaN(mTWD) && mBRG >= 0)
+                  BoatPolar->Calc_TargetCMG2(mTWS, mTWD, mBRG, &TCMGMax, &TCMGMin);
+                if (!wxIsNaN(TCMGMax.TargetAngle))
+                  m_data = wxString::Format("%.0f", TCMGMax.TargetAngle) + _T("\u00B0");
+                else
+                  m_data = _T("no polar data");
+              }
+              else
+                m_data = _T("no data");
+            }
+            else if (m_displaytype == TWAMARK){
+              double avWnd = AverageWind->GetAvgWindDir();
+              while (avWnd > 360) avWnd -= 360;
+              while (avWnd < 0) avWnd += 360;
+              double port = avWnd + AverageWind->GetDegRangePort();
+              while (port > 360) port -= 360;
+              while (port < 0) port += 360;
+              double stb = avWnd + AverageWind->GetDegRangeStb();
+              while (stb > 360) stb -= 360;
+              while (stb < 0) stb += 360;
+              //wxLogMessage("avWnd=%.0f %.0f %.0f", port,avWnd,stb);
+              /* original :
+              if (mBRG>=0 && !wxIsNaN(mTWD)) {
+                double markBrG = getDegRange(mBRG, mTWD);
+                m_data = wxString::Format("%.0f",(double) markBrG) + _T("\u00B0");
+              }*/
+              if (mBRG >= 0 && !wxIsNaN(mTWD) && !wxIsNaN(avWnd) ) {
+                double markBrG = getDegRange(mBRG, mTWD);
+                // do the rounding inside the function to keep it somehow in sync with the AvgWind instrument ...
+                double AvgMarkBrG = getDegRange(mBRG, wxRound(avWnd));
+                double leftMarkBrG = getDegRange(mBRG, wxRound(port));
+                double rightMarkBrG = getDegRange(mBRG, wxRound(stb));
+                
+                if (leftMarkBrG > rightMarkBrG) {
+                  double tmp = leftMarkBrG;
+                  leftMarkBrG = rightMarkBrG;
+                  rightMarkBrG = tmp;
+                }
+                m_data = wxString::Format("%.0f", (double)leftMarkBrG) + _T("\u00B0") + wxString::Format(" - %.0f", (double)AvgMarkBrG) + _T("\u00B0")+ wxString::Format(" - %.0f", (double)rightMarkBrG) + _T("\u00B0");
+              }
+              else
+                m_data = _T("---");
+            }
 }
 /***********************************************************************************
 
@@ -534,23 +566,20 @@ void Polar::loadPolar(wxString FilePath)
 		pConf->SetPath(_T("/PlugIns/Tactics/Performance"));
 		pConf->Read(_T("PolarLookupTableOutputFile"), &path_to_PolarLookupOutputFile, _T("NULL"));
 	}
-
-	//wxString file = _T("C:/TEMP/Polar.txt");
-	//wxFileOutputStream outstream(file);
 	if (path_to_PolarLookupOutputFile != _T("NULL")){
 		wxFileOutputStream outstream(path_to_PolarLookupOutputFile);
 		wxTextOutputStream out(outstream);
 
-		wxString str = _T("d/s");
+		wxString str = _T("TWA\\TWS");
         for (int i = 0; i <= WINDSPEED; i++){
-			str = wxString::Format(_T("%s\t%02d"), str, i);
+			str = wxString::Format(_T("%s;%02d"), str, i);
 		}
 		str = str + _T("\n");
 		out.WriteString(str);				// write line by line
 		for (int n = 0; n < WINDDIR; n++){
-			str = wxString::Format(_T("%d\t"), n);
+			str = wxString::Format(_T("%d"), n);
             for (int i = 0; i <= WINDSPEED; i++){
-				str = wxString::Format(_T("%s\t%.2f"), str, windsp[i].winddir[n]);
+				str = wxString::Format(_T("%s;%.2f"), str, windsp[i].winddir[n]);
 			}
 			str = str + _T("\n");
 			out.WriteString(str);				// write line by line
@@ -1217,19 +1246,24 @@ TacticsInstrument(parent, id, title, OCPN_DBP_STC_STW | OCPN_DBP_STC_TWA | OCPN_
   m_TWS = NAN;
   m_STW = NAN;
   m_PolarSpeedPercent = 0;
+  m_PolarSpeed = 0;
   m_MaxPercent = 0;
   m_MinBoatSpd = 0;
   m_MaxBoatSpd = 0;
   m_STWUnit = _T("--");
   m_PercentUnit = _T("%");
   num_of_scales = 6;
-  m_MaxBoatSpdScale = 0;
-  m_MaxPercentScale = 0;
-  m_AvgSpdPercent = 0;
-  m_AvgTWA = 0;
-  m_AvgTWS = 0;
+  m_MaxBoatSpdScale = 0.0;
+  m_MaxPercentScale = 0.0;
+  m_AvgSpdPercent = 0.0;
+  m_AvgTWA = 0.0;
+  m_AvgTWS = 0.0;
   m_TopLineHeight = 35;
-  m_SpdStartVal = -1;
+  m_TitleHeight = 10;
+  m_width = 0;
+  m_height = 0;
+  m_ratioW = 0;
+  //m_SpdStartVal = -1;
   m_IsRunning = false;
   m_SampleCount = 0;
   m_LeftLegend = 3;
@@ -1245,6 +1279,7 @@ TacticsInstrument(parent, id, title, OCPN_DBP_STC_STW | OCPN_DBP_STC_TWA | OCPN_
   mExpSmAvgSpdPercent = new DoubleExpSmooth(alpha);
   mExpSmAvgTWA = new DoubleExpSmooth(alpha);
   mExpSmAvgTWS = new DoubleExpSmooth(alpha);
+  //m_MinTWAAngle = 35;//TR 20.08.2019 : temp. for Polar Creation Tests
   m_WindowRect = GetClientRect();
   m_DrawAreaRect = GetClientRect();
   m_DrawAreaRect.SetHeight(m_WindowRect.height - m_TopLineHeight - m_TitleHeight);
@@ -1253,6 +1288,7 @@ TacticsInstrument(parent, id, title, OCPN_DBP_STC_STW | OCPN_DBP_STC_TWA | OCPN_
 
   //data export
   m_isExporting = false;
+  m_exportInterval = 5;
   wxPoint pos;
   pos.x = pos.y = 0;
   m_LogButton = new wxButton(this, wxID_ANY, _(">"), pos, wxDefaultSize, wxBU_TOP | wxBU_EXACTFIT | wxFULL_REPAINT_ON_RESIZE | wxBORDER_NONE);
@@ -1276,42 +1312,38 @@ TacticsInstrument(parent, id, title, OCPN_DBP_STC_STW | OCPN_DBP_STC_TWA | OCPN_
   if (m_exportInterval == 10) btn10Sec->Check(true);
   if (m_exportInterval == 20) btn20Sec->Check(true);
   if (m_exportInterval == 60) btn60Sec->Check(true);
-
- /*temp out
+  //TR 20.08.2019 : temp. for Polar Creation Tests
+  /*
   //fill temp. copy of polar lookup table 
   for (int n = 0; n < WINDDIR; n++) {
     for (int i = 0; i <= WINDSPEED; i++) {
       tmpwindsp[i].tmpwinddir[n] = 0; //BoatPolar->GetPolarSpeed(n, i); 
       tmpwindsp[i].ischanged[n] = false;
     }
-  }*/
+  }
+  //load the polar from ini : tmpPolarFile
+  loadPolar(_(""));
+  // find a backup filename of the upper file...
+  wxFile polfil;
+  int i = 1;
+  wxString pfil = m_polarfile;
+  while (polfil.Exists(pfil)) {
+    pfil = wxString::Format("%s_backup_%d.pol", m_polarfile, i);
+    i++;
+  }
+  // write backup of the upper file...
+  writeTempFile(pfil);
+  */
 }
 
 TacticsInstrument_PolarPerformance::~TacticsInstrument_PolarPerformance(void) {
   if (m_isExporting)
     m_ostreamlogfile.Close();
-  /*temp out
+  m_PolarPerfUpdTimer.Stop();
+  m_LogButton->Disconnect(wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler(TacticsInstrument_PolarPerformance::OnLogDataButtonPressed), NULL, this);
   //output of temp lookup table
-  wxFileOutputStream outstream("C:/TEMP/updated_Polar.txt");
-  wxTextOutputStream out(outstream);
+  //writeTempFile(m_polarfile); //TR 20.08.2019 : temp. for Polar Creation Tests
 
-  wxString str = _T("TWA\\TWS");
-  for (int i = 0; i <= WINDSPEED; i++) {
-    str = wxString::Format(_T("%s;%02d"), str, i);
-  }
-  str = str + _T("\n");
-  out.WriteString(str);				// write line by line
-  for (int n = 0; n < 180; n++) {
-    str = wxString::Format(_T("%d;"), n);
-    for (int i = 0; i <= WINDSPEED; i++) {
-      str = wxString::Format(_T("%s;%.2f"), str, tmpwindsp[i].tmpwinddir[n]);
-    }
-    str = str + _T("\n");
-    out.WriteString(str);				// write line by line
-
-  }
-  outstream.Close();
-  */
 }
 
 wxSize TacticsInstrument_PolarPerformance::GetSize(int orient, wxSize hint)
@@ -1455,16 +1487,32 @@ void TacticsInstrument_PolarPerformance::OnPolarPerfUpdTimer(wxTimerEvent & even
 
     m_AvgTWA = mExpSmAvgTWA->GetSmoothVal(m_TWA);
     m_AvgTWS = mExpSmAvgTWS->GetSmoothVal(m_TWS);
-    /*temp out
+    //TR 20.08.2019 : temp. for Polar Creation Tests
+    /*
+    if (m_isExporting == true) { //temp for now.. .do it only when data export it runnning ...
       //if (m_AvgSpdPercent > 100 && m_AvgTWA > 30 && m_AvgTWS >= 2) {
-    int i_tws = wxRound(m_AvgTWS);
-    int i_twa = wxRound(m_AvgTWA);
-    //if the avg value is bigger as the current value in the array ...
-    if (m_ExpSmoothArrayBoatSpd[DATA_RECORD_COUNT - 1] > tmpwindsp[i_tws].tmpwinddir[i_twa] && i_twa > 30 && i_tws > 0) {
-      tmpwindsp[i_tws].tmpwinddir[i_twa] = m_ExpSmoothArrayBoatSpd[DATA_RECORD_COUNT - 1];
-      tmpwindsp[i_tws].tmpwinddir[360 - i_twa] = m_ExpSmoothArrayBoatSpd[DATA_RECORD_COUNT - 1];
-      tmpwindsp[i_tws].ischanged[i_twa] = true;
-      tmpwindsp[i_tws].ischanged[360 - i_twa] = true;
+      int tmp = (int)m_AvgTWS;
+      int i_tws = wxRound(m_AvgTWS);
+      double dectws = m_AvgTWS - tmp;
+      double AvgSTW;
+      if (dectws > 0.70) { //greater x.70 -->round tws up, but keep STW unchanged.
+        i_tws = (int)m_AvgTWS + 1;
+        AvgSTW = m_ExpSmoothArrayBoatSpd[DATA_RECORD_COUNT - 1];
+      }
+      else { //take the next lower value and recalc STW down.
+        i_tws = (int)m_AvgTWS;
+        AvgSTW = m_ExpSmoothArrayBoatSpd[DATA_RECORD_COUNT - 1] * tmp / m_AvgTWS;
+      }
+      int i_twa = wxRound(m_AvgTWA);
+      //AvgSTW = m_ExpSmoothArrayBoatSpd[DATA_RECORD_COUNT - 1];
+
+      //if the avg value is bigger than the current value in the array ...
+      if (AvgSTW > tmpwindsp[i_tws].tmpwinddir[i_twa] && i_twa > m_MinTWAAngle && i_tws > 0) {
+        tmpwindsp[i_tws].tmpwinddir[i_twa] = AvgSTW;
+        tmpwindsp[i_tws].tmpwinddir[360 - i_twa] = AvgSTW;
+        tmpwindsp[i_tws].ischanged[i_twa] = true;
+        tmpwindsp[i_tws].ischanged[360 - i_twa] = true;
+      }
     }*/
     // Data export  
     ExportData();
@@ -1812,7 +1860,9 @@ void TacticsInstrument_PolarPerformance::OnLogDataButtonPressed(wxCommandEvent& 
     bool exists = m_ostreamlogfile.Exists(m_logfile);
     m_ostreamlogfile.Open(m_logfile, wxFile::write_append);
     if (!exists) {
-      wxString str = wxString::Format(_T("%s%s%s%s%s%s%s%s%s%s%s\n"), "Date", g_sDataExportSeparator, "Time", g_sDataExportSeparator, "AvgTWA", g_sDataExportSeparator, "AvgTWS", g_sDataExportSeparator, "smoothed BoatSpd", g_sDataExportSeparator, "Percent");
+      wxString str_ticks = g_bDataExportClockticks ? wxString::Format(_("ClockTicks%s"), g_sDataExportSeparator) : _("");
+      wxString str_utc = g_bDataExportUTC ? wxString::Format(_("UTC-ISO8601%s"), g_sDataExportSeparator) : _("");
+      wxString str = wxString::Format(_T("%s%s%s%s%s%s%s%s%s%s%s%s%s\n"), str_ticks, str_utc, "Date", g_sDataExportSeparator, "local Time", g_sDataExportSeparator, "AvgTWA", g_sDataExportSeparator, "AvgTWS", g_sDataExportSeparator, "smoothed BoatSpd", g_sDataExportSeparator, "Percent");
       m_ostreamlogfile.Write(str);
     }
     SaveConfig(); //save the new export-rate &filename to opencpn.ini
@@ -1863,9 +1913,220 @@ void TacticsInstrument_PolarPerformance::ExportData(void) {
   if (m_isExporting == true) {
     wxDateTime localTime(m_ArrayRecTime[DATA_RECORD_COUNT - 1]);
     if (localTime.GetSecond() % m_exportInterval == 0) {
-      wxString str = wxString::Format(_T("%s%s%s%s%3.0f%s%3.1f%s%3.2f%s%3.2f\n"), localTime.FormatDate(), g_sDataExportSeparator, localTime.FormatTime(), g_sDataExportSeparator, m_AvgTWA, g_sDataExportSeparator, toUsrSpeed_Plugin(m_AvgTWS, g_iDashWindSpeedUnit), g_sDataExportSeparator, toUsrSpeed_Plugin(m_ExpSmoothArrayBoatSpd[DATA_RECORD_COUNT - 1], g_iDashSpeedUnit), g_sDataExportSeparator, m_AvgSpdPercent);
+      wxString str_utc, ticks;
+      if (g_bDataExportUTC) {
+        wxDateTime utc = localTime.ToUTC();
+        str_utc = wxString::Format(_T("%sZ%s"), utc.FormatISOCombined('T'), g_sDataExportSeparator);
+      }
+      else
+        str_utc = _T("");
+      if (g_bDataExportClockticks) {
+        wxLongLong ti = localTime.GetValue();
+        ticks = wxString::Format(_T("%s%s"), ti.ToString(), g_sDataExportSeparator);
+      }
+      else
+        ticks = _T("");
+      wxString str = wxString::Format(_T("%s%s%s%s%s%s%3.0f%s%3.1f%s%3.2f%s%3.2f\n"), ticks, str_utc, localTime.FormatDate(), g_sDataExportSeparator, localTime.FormatTime(), g_sDataExportSeparator, m_AvgTWA, g_sDataExportSeparator, toUsrSpeed_Plugin(m_AvgTWS, g_iDashWindSpeedUnit), g_sDataExportSeparator, toUsrSpeed_Plugin(m_ExpSmoothArrayBoatSpd[DATA_RECORD_COUNT - 1], g_iDashSpeedUnit), g_sDataExportSeparator, m_AvgSpdPercent);
       m_ostreamlogfile.Write(str);
     }
   }
 
 }
+//TR 20.08.2019 : temp. for Polar Creation Tests
+/*
+void TacticsInstrument_PolarPerformance::loadPolar(wxString FilePath)
+{
+  wxString filePath = _T("NULL");
+  wxString fname = _T("");
+  wxFileConfig *pConf = (wxFileConfig *)m_pconfig;
+
+  if (FilePath == _T("")) { //input parameter empty, read from config
+
+    if (pConf) {
+
+      pConf->SetPath(_T("/PlugIns/Tactics/Performance"));
+
+      pConf->Read(_T("tmpPolarFile"), &filePath, _T("NULL"));
+      fname = filePath;
+      m_polarfile = filePath;
+
+    }
+    if (filePath == _T("NULL")) {
+      wxFileDialog fdlg(GetOCPNCanvasWindow(), _("tactics_pi: Select a temp.Polar-File"), _T(""));
+      if (fdlg.ShowModal() == wxID_CANCEL) return;
+      filePath = fdlg.GetPath();
+      fname = fdlg.GetFilename();
+
+    }
+  }
+  else {
+    filePath = FilePath;
+    fname = filePath;
+  }
+
+  //reset();
+
+  if (filePath != _T("NULL")) {  //TR23.04.
+    wxFileInputStream stream(filePath);
+    wxTextInputStream in(stream);
+    wxString wdirstr, wsp;
+
+    bool first = true;
+    int mode = -1, row = -1, sep = -1;
+    wxArrayString WS, WSS;
+
+    while (!stream.Eof())
+    {
+      int col = 0, i = 0, x = 0;
+      wxString s;
+
+      wxString str = in.ReadLine();				// read line by line
+      if (stream.Eof()) break;
+      if (first)
+      {
+        WS = wxStringTokenize(str, _T(";,\t "));
+        WS[0] = WS[0].Upper();
+        if (WS[0].Find(_T("TWA\\TWS")) != -1 || WS[0].Find(_T("TWA/TWS")) != -1 || WS[0].Find(_T("TWA")) != -1)
+        {
+          mode = 1;
+          sep = 1;
+        }
+        else if (WS[0].IsNumber())
+        {
+          mode = 2;
+          sep = 1;
+          //x = wxAtoi(WS[0]);
+          //col = (x + 1) / 2 - 1;
+          col = wxAtoi(WS[0]);
+
+          for (i = 1; i < (int)WS.GetCount(); i += 2)
+          {
+            //x = wxAtoi(WS[i]);
+            //row = (x + 2) / 5 - 1;
+            row = wxAtoi(WS[i]);
+            s = WS[i + 1];
+
+            if (col > WINDSPEED - 1) break;
+            if (s == _T("0") || s == _T("0.00") || s == _T("0.0") || s == _T("0.000")) {
+              continue;
+            }
+            if (col < WINDSPEED + 1) {
+              setValue(s, row, col);
+            }
+          }
+        }
+        else if (!WS[0].IsNumber()) {
+          continue;
+        }
+
+        if (sep == -1) {
+          wxMessageBox(_("Format in this file not recognised"));
+          return;
+        }
+
+        first = false;
+        if (mode != 0)
+          continue;
+      }
+      if (mode == 1) // Formats OCPN/QTVlm/MAXSea/CVS 
+      {
+        WSS = wxStringTokenize(str, _T(";,\t "));
+        if (WSS[0] == _T("0") && mode == 1)
+        {
+          row++; continue;
+        }
+        else if (row == -1)
+          row++;
+        row = wxAtoi(WSS[0]);
+        for (i = 1; i < (int)WSS.GetCount(); i++)
+        {
+          s = WSS[i];
+          if (col > WINDSPEED - 1) break;
+          if (s == _T("0") || s == _T("0.00") || s == _T("0.0") || s == _T("0.000")) {
+            continue;
+          }
+          col = wxAtoi(WS[i]);
+          setValue(s, row, col);
+        }
+      }
+
+      if (mode == 2) // Format Expedition
+      {
+        WS = wxStringTokenize(str, _T(";,\t "));
+        //x = wxAtoi(WS[0]);
+        //col = (x + 1) / 2 - 1;
+        col = wxAtoi(WS[0]);
+
+        for (i = 1; i < (int)WS.GetCount(); i += 2)
+        {
+          //x = wxAtoi(WS[i]);
+          //row = (x + 2) / 5 - 1;
+          row = wxAtoi(WS[i]);
+          s = WS[i + 1];
+          if (col > WINDSPEED - 1) break;
+          if (s == _T("0") || s == _T("0.00") || s == _T("0.0") || s == _T("0.000"))
+          {
+            continue;
+          }
+          //if (col < 21)
+          if (col < WINDSPEED + 1) {
+            setValue(s, row, col);
+          }
+        }
+      }
+    }
+    //completePolar();
+    //g_path_to_PolarFile = filePath;
+    if (pConf) {
+      pConf->SetPath(_T("/PlugIns/Tactics/Performance"));
+      pConf->Write(_T("tmpPolarFile"), filePath);
+    }
+
+  } 
+
+}
+//***********************************************************************************
+
+//***********************************************************************************
+void TacticsInstrument_PolarPerformance::setValue(wxString s, int dir, int spd)
+{
+  s.Replace(_T(","), _T("."));
+  double speed = wxAtof(s);
+
+  //if (speed > 0.0 && speed <= WINDSPEED && dir >= 0 && dir <WINDDIR)
+  if (spd > 0 && spd <= WINDSPEED && dir >= 0 && dir < WINDDIR)
+  {
+    tmpwindsp[spd].tmpwinddir[dir] = speed;
+    tmpwindsp[spd].ischanged[dir] = false;
+//    tmpwindsp[spd].isfix[dir] = true;
+    //for cmg : fill the second half of the polar
+    tmpwindsp[spd].tmpwinddir[360 - dir] = speed;
+    tmpwindsp[spd].ischanged[360 - dir] = false;
+//    tmpwindsp[spd].isfix[360 - dir] = true;
+  }
+}
+
+void TacticsInstrument_PolarPerformance::writeTempFile(wxString filename)
+{
+  wxFile polfil;
+
+polfil.Open(filename, wxFile::write);
+
+wxString str = _T("TWA\\TWS");
+for (int i = 0; i <= WINDSPEED; i++) {
+  str = wxString::Format(_T("%s;%02d"), str, i);
+}
+str = str + _T("\n");
+polfil.Write(str);
+for (int n = 0; n < 180; n++) {
+  str = wxString::Format(_T("%d"), n);
+  for (int i = 0; i <= WINDSPEED; i++) {
+    str = wxString::Format(_T("%s;%.2f"), str, tmpwindsp[i].tmpwinddir[n]);
+  }
+  str = str + _T("\n");
+  polfil.Write(str);
+
+}
+polfil.Close();
+}
+*/

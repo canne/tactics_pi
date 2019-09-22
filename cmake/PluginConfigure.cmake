@@ -82,18 +82,10 @@ ENDIF(_wx_selected_config MATCHES "androideabi-qt")
 ENDIF(DEFINED _wx_selected_config)
 
 
-MESSAGE (STATUS "*** Staging to build ${PACKAGE_NAME} ***")
+MESSAGE (STATUS "*** Building ${PACKAGE_NAME} ***")
 
-include  ("VERSION.cmake")
-configure_file(${PROJECT_SOURCE_DIR}/cmake/wxWTranslateCatalog.h.in ${CMAKE_CURRENT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/include/wxWTranslateCatalog.h)
-
-#  Do the version.h configuration into the build output directory,
-#  thereby allowing building from a read-only source tree.
-IF(NOT SKIP_VERSION_CONFIG)
-    configure_file(${PROJECT_SOURCE_DIR}/cmake/version.h.in ${CMAKE_CURRENT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/include/version.h)
-    configure_file(cmake/wxWTranslateCatalog.h.in ${PROJECT_SOURCE_DIR}/src/wxWTranslateCatalog.h)
-    INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/include)
-ENDIF(NOT SKIP_VERSION_CONFIG)
+configure_file(cmake/version.h.in ${PROJECT_SOURCE_DIR}/src/version.h)
+#SET(PACKAGE_VERSION "${VERSION_MAJOR}.${VERSION_MINOR}" )
 
 SET(PLUGIN_VERSION "${PLUGIN_VERSION_MAJOR}.${PLUGIN_VERSION_MINOR}.${PLUGIN_VERSION_PATCH}-${NAME_SUFFIX}" )
 
@@ -285,28 +277,20 @@ SET(BUILD_SHARED_LIBS TRUE)
 
 FIND_PACKAGE(Gettext REQUIRED)
 
+MESSAGE (STATUS "*** Staging to build ${PACKAGE_NAME} ***")
 
-IF(NOT WIN32)
- IF(NOT APPLE)
-  SET(CMAKE_SHARED_LINKER_FLAGS "-Wl,-Bsymbolic")
-  ADD_DEFINITIONS( "-rdynamic" )
- ELSE(NOT APPLE)
-  SET(CMAKE_SHARED_LINKER_FLAGS "-Wl -undefined dynamic_lookup")
-  ADD_DEFINITIONS( "-Wno-overloaded-virtual" )
- ENDIF(NOT APPLE)
+include  ("VERSION.cmake")
+configure_file(${PROJECT_SOURCE_DIR}/cmake/wxWTranslateCatalog.h.in ${CMAKE_CURRENT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/include/wxWTranslateCatalog.h)
 
-ENDIF(NOT WIN32)
+#  Do the version.h configuration into the build output directory,
+#  thereby allowing building from a read-only source tree.
+IF(NOT SKIP_VERSION_CONFIG)
+    configure_file(${PROJECT_SOURCE_DIR}/cmake/version.h.in ${CMAKE_CURRENT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/include/version.h)
+    configure_file(cmake/wxWTranslateCatalog.h.in ${PROJECT_SOURCE_DIR}/src/wxWTranslateCatalog.h)
+    INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/include)
+ENDIF(NOT SKIP_VERSION_CONFIG)
 
+SET(PLUGIN_VERSION "${PLUGIN_VERSION_MAJOR}.${PLUGIN_VERSION_MINOR}.${PLUGIN_VERSION_PATCH}-${NAME_SUFFIX}" )
 
-# Add some definitions to satisfy MS
-IF(WIN32)
-    ADD_DEFINITIONS(-D__MSVC__)
-    ADD_DEFINITIONS(-D_CRT_NONSTDC_NO_DEPRECATE -D_CRT_SECURE_NO_DEPRECATE)
-ENDIF(WIN32)
-
-# Let cmake find additional modules private
-LIST(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR})
-
-
-ADD_DEFINITIONS(-DTIXML_USE_STL)
+INCLUDE_DIRECTORIES(BEFORE ${PROJECT_SOURCE_DIR}/include ${PROJECT_SOURCE_DIR}/src)
 
